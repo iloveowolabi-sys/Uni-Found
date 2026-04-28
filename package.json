@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "npx tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "start": "tsx server.ts"
+    "start": "npx tsx server.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
