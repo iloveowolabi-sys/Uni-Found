@@ -24,7 +24,11 @@
     "react-router-dom": "^7.13.0",
     "recharts": "^3.7.0",
     "sonner": "^2.0.7",
+<<<<<<< HEAD
     "tsx": "^4.21.0"
+=======
+    "tsx" :"^4.21.0"
+>>>>>>> e862f0cb7c346cd428c231f6b1b5bc90d200b74d
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
