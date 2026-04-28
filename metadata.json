@@ -1,0 +1,5 @@
+{
+  "name": "UniFound - Campus Lost & Found",
+  "description": "A comprehensive cloud-based system for reporting, tracking, and recovering lost items across the university campus, featuring secure role-based access.",
+  "requestFramePermissions": []
+}
