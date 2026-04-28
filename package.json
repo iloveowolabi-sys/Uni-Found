@@ -1,14 +1,19 @@
 {
-  "name": "unifound---campus-lost-&-found",
+  "name": "unifound-campus-lost-and-found",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": "20.x",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
-    "dev": "npx tsx server.ts",
+    "dev": "node --import tsx server.ts",
     "build": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "start": "npx tsx server.ts"
+    "start": "node --import tsx server.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
