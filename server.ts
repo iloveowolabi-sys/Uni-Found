@@ -751,16 +751,24 @@ async function startServer() {
   });
 
   // --- VITE MIDDLEWARE ---
+  const distPath = path.join(process.cwd(), 'dist');
 
   if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (e) {
+      console.warn('[SERVER] Could not load vite, falling back to static production mode. - server.ts:765');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -768,10 +776,10 @@ async function startServer() {
   }
 
   // To support Azure App Services which assign a port via process.env.PORT
-  const serverPort = process.env.PORT ? parseInt(process.env.PORT, 10) : PORT;
-  app.listen(serverPort, '0.0.0.0', () => {
-    console.log(`[SERVER] Server running on http://0.0.0.0:${serverPort} - server.ts:773`);
-    console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'} - server.ts:774`);
+  const serverPort = process.env.PORT || PORT;
+  app.listen(serverPort, () => {
+    console.log(`[SERVER] Server running on port ${serverPort} - server.ts:781`);
+    console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'} - server.ts:782`);
   });
 }
 
