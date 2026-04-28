@@ -22,6 +22,7 @@ if (!process.env.DATABASE_URL) {
 
 const poolConfig: any = {
   connectionString: process.env.DATABASE_URL,
+  connectionTimeoutMillis: 10000,
 };
 if (process.env.NODE_ENV === 'production' && process.env.DATABASE_URL) {
     if(!process.env.DATABASE_URL.includes('localhost')){
@@ -42,7 +43,7 @@ const createNotification = async (userId: string, title: string, message: string
       [id, userId, title, message]
     );
   } catch (error) {
-    console.error('Failed to create notification: - server.ts:45', error);
+    console.error('Failed to create notification: - server.ts:46', error);
   }
 };
 
@@ -80,7 +81,7 @@ async function sendPasswordResetEmail(email: string, token: string, name: string
 
   const resetUrl = `${baseUrl || 'http://localhost:3000'}/reset-password?token=${token}`;
   
-  console.log(`[DEBUG] Password Reset Link for ${email}: ${resetUrl} - server.ts:83`);
+  console.log(`[DEBUG] Password Reset Link for ${email}: ${resetUrl} - server.ts:84`);
   
   try {
     await transporter.sendMail({
@@ -103,9 +104,9 @@ async function sendPasswordResetEmail(email: string, token: string, name: string
         </div>
       `,
     });
-    console.log(`[EMAIL] Password reset email sent successfully to ${email} - server.ts:106`);
+    console.log(`[EMAIL] Password reset email sent successfully to ${email} - server.ts:107`);
   } catch (error: any) {
-    console.error('Failed to send password reset email: - server.ts:108', error);
+    console.error('Failed to send password reset email: - server.ts:109', error);
   }
 }
 
@@ -131,7 +132,7 @@ async function sendVerificationEmail(email: string, token: string, name: string,
   const verificationUrl = `${baseUrl || 'http://localhost:3000'}/verify-email?token=${token}`;
   
   // ALWAYS log the link to the console as a fallback/debug measure
-  console.log(`[DEBUG] Verification Link for ${email}: ${verificationUrl} - server.ts:134`);
+  console.log(`[DEBUG] Verification Link for ${email}: ${verificationUrl} - server.ts:135`);
   
   try {
     await transporter.sendMail({
@@ -152,11 +153,11 @@ async function sendVerificationEmail(email: string, token: string, name: string,
         </div>
       `,
     });
-    console.log(`[EMAIL] Verification email sent successfully to ${email} - server.ts:155`);
+    console.log(`[EMAIL] Verification email sent successfully to ${email} - server.ts:156`);
   } catch (error: any) {
-    console.error('Failed to send verification email: - server.ts:157', error);
+    console.error('Failed to send verification email: - server.ts:158', error);
     if (error.code === 'EAUTH') {
-      console.error('[EMAIL ERROR] Authentication failed. Please doublecheck your SMTP_USER and SMTP_PASS in the application settings. - server.ts:159');
+      console.error('[EMAIL ERROR] Authentication failed. Please doublecheck your SMTP_USER and SMTP_PASS in the application settings. - server.ts:160');
     }
     // We don't throw here anymore to prevent the whole request from failing
     // The user will see the "check your email" message, and can check logs if it doesn't arrive
@@ -229,7 +230,7 @@ async function initDb() {
       } catch (e: any) {
         // PG error 42701 is duplicate_column
         if (e.code !== '42701') {
-          console.error(`Migration error for ${m.column}: - server.ts:232`, e);
+          console.error(`Migration error for ${m.column}: - server.ts:233`, e);
         }
       }
     }
@@ -239,24 +240,20 @@ async function initDb() {
 }
 
 async function startServer() {
-  console.log('[SERVER] Starting server initialization... - server.ts:242');
+  console.log('[SERVER] Starting server initialization... - server.ts:243');
   const app = express();
   const PORT = 3000;
 
-  try {
-    await initDb();
-    console.log('[SERVER] Postgres Database initialized successfully - server.ts:248');
-  } catch(e) {
-    console.error('[SERVER] Failed to initialize database: - server.ts:250', e);
-    // Don't throw, let the app start so health checks pass, DB will fail later on requests.
-  }
+  initDb()
+    .then(() => console.log('[SERVER] Postgres Database initialized successfully - server.ts:248'))
+    .catch((e) => console.error('[SERVER] Failed to initialize database: - server.ts:249', e));
 
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
 
   // Request logging middleware
   app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - server.ts:259`);
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - server.ts:256`);
     next();
   });
 
@@ -279,7 +276,7 @@ async function startServer() {
   });
 
   // --- AUTH ROUTES ---
-  console.log('[SERVER] Setting up auth routes... - server.ts:282');
+  console.log('[SERVER] Setting up auth routes... - server.ts:279');
 
   app.post('/api/auth/signup', async (req, res) => {
     const { name, email, password, username } = req.body;
@@ -296,13 +293,13 @@ async function startServer() {
       
       // Send email in background
       sendVerificationEmail(email, verificationToken, name, req).catch(err => {
-        console.error('Background email error: - server.ts:299', err);
+        console.error('Background email error: - server.ts:296', err);
       });
       
       const token = jwt.sign({ id, email, name, role }, JWT_SECRET);
       res.json({ token, user: { id, name, email, role, isVerified: false } });
     } catch (error: any) {
-      console.error('Signup error: - server.ts:305', error);
+      console.error('Signup error: - server.ts:302', error);
       // PG unique violation code is 23505
       if (error.code === '23505') {
         res.status(400).json({ error: 'Email already exists' });
@@ -314,22 +311,22 @@ async function startServer() {
 
   app.post('/api/auth/verify', async (req, res) => {
     const { token } = req.body;
-    console.log(`[AUTH] Verification attempt with token: ${token?.substring(0, 8)}... - server.ts:317`);
+    console.log(`[AUTH] Verification attempt with token: ${token?.substring(0, 8)}... - server.ts:314`);
     try {
       const { rows } = await pool.query('SELECT id, email FROM users WHERE verification_token = $1', [token]);
       const user = rows[0];
       
       if (!user) {
-        console.log('[AUTH] Verification failed: Invalid token - server.ts:323');
+        console.log('[AUTH] Verification failed: Invalid token - server.ts:320');
         return res.status(400).json({ error: 'Invalid or expired verification token' });
       }
 
-      console.log(`[AUTH] Verifying user: ${user.email} - server.ts:327`);
+      console.log(`[AUTH] Verifying user: ${user.email} - server.ts:324`);
       await pool.query('UPDATE users SET is_verified = true, verification_token = NULL WHERE id = $1', [user.id]);
-      console.log(`[AUTH] User ${user.email} verified successfully - server.ts:329`);
+      console.log(`[AUTH] User ${user.email} verified successfully - server.ts:326`);
       res.json({ success: true });
     } catch (error) {
-      console.error('[AUTH ERROR] Verification error: - server.ts:332', error);
+      console.error('[AUTH ERROR] Verification error: - server.ts:329', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -347,12 +344,12 @@ async function startServer() {
       
       // We don't await this to prevent SMTP auth errors from blocking the response
       sendVerificationEmail(user.email, verificationToken, user.name, req).catch(err => {
-        console.error('Resend email background error: - server.ts:350', err);
+        console.error('Resend email background error: - server.ts:347', err);
       });
       
       res.json({ success: true });
     } catch (error) {
-      console.error('Resend verification error: - server.ts:355', error);
+      console.error('Resend verification error: - server.ts:352', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -381,7 +378,7 @@ async function startServer() {
       
       res.json({ success: true, message: 'Password reset email sent.' });
     } catch (error) {
-      console.error('Forgot password error: - server.ts:384', error);
+      console.error('Forgot password error: - server.ts:381', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -410,36 +407,36 @@ async function startServer() {
       
       res.json({ success: true, message: 'Password has been reset successfully' });
     } catch (error) {
-      console.error('Reset password error: - server.ts:413', error);
+      console.error('Reset password error: - server.ts:410', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
 
   app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
-    console.log(`[AUTH] Login attempt for: ${email} - server.ts:420`);
+    console.log(`[AUTH] Login attempt for: ${email} - server.ts:417`);
     try {
-      console.log(`[AUTH] Querying database for user: ${email} - server.ts:422`);
+      console.log(`[AUTH] Querying database for user: ${email} - server.ts:419`);
       const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
       const user = rows[0];
       
       if (!user) {
-        console.log(`[AUTH] Login failed: User not found (${email}) - server.ts:427`);
+        console.log(`[AUTH] Login failed: User not found (${email}) - server.ts:424`);
         return res.status(400).json({ error: 'User not found' });
       }
 
-      console.log(`[AUTH] User found, comparing passwords... - server.ts:431`);
+      console.log(`[AUTH] User found, comparing passwords... - server.ts:428`);
       const validPassword = bcrypt.compareSync(password, user.password);
       
       if (!validPassword) {
-        console.log(`[AUTH] Login failed: Invalid password for ${email} - server.ts:435`);
+        console.log(`[AUTH] Login failed: Invalid password for ${email} - server.ts:432`);
         return res.status(400).json({ error: 'Invalid password' });
       }
 
-      console.log(`[AUTH] Password valid, generating token... - server.ts:439`);
+      console.log(`[AUTH] Password valid, generating token... - server.ts:436`);
       const token = jwt.sign({ id: user.id, email: user.email, name: user.name, role: user.role }, JWT_SECRET);
       
-      console.log(`[AUTH] Login successful for: ${email} - server.ts:442`);
+      console.log(`[AUTH] Login successful for: ${email} - server.ts:439`);
       res.json({ 
         token, 
         user: { 
@@ -453,7 +450,7 @@ async function startServer() {
         } 
       });
     } catch (error) {
-      console.error('[AUTH ERROR] Login error: - server.ts:456', error);
+      console.error('[AUTH ERROR] Login error: - server.ts:453', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -543,7 +540,7 @@ async function startServer() {
 
       res.json({ id });
     } catch (error) {
-      console.error('Create report error: - server.ts:546', error);
+      console.error('Create report error: - server.ts:543', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -669,7 +666,7 @@ async function startServer() {
         categoryDistribution: categoryDistribution.map((c: any) => ({ ...c, value: Number(c.value) }))
       });
     } catch(e) {
-       console.error("Stats Error: - server.ts:672", e);
+       console.error("Stats Error: - server.ts:669", e);
        res.status(500).json({ error: 'Server error' });
     }
   });
@@ -706,7 +703,7 @@ async function startServer() {
       `, [req.user.id]);
       res.json(rows);
     } catch (error) {
-      console.error('Fetch notifications error: - server.ts:709', error);
+      console.error('Fetch notifications error: - server.ts:706', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -748,7 +745,7 @@ async function startServer() {
 
       res.json({ success: true });
     } catch (error) {
-      console.error('Update status error: - server.ts:751', error);
+      console.error('Update status error: - server.ts:748', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -773,8 +770,8 @@ async function startServer() {
   // To support Azure App Services which assign a port via process.env.PORT
   const serverPort = process.env.PORT ? parseInt(process.env.PORT, 10) : PORT;
   app.listen(serverPort, '0.0.0.0', () => {
-    console.log(`[SERVER] Server running on http://0.0.0.0:${serverPort} - server.ts:776`);
-    console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'} - server.ts:777`);
+    console.log(`[SERVER] Server running on http://0.0.0.0:${serverPort} - server.ts:773`);
+    console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'} - server.ts:774`);
   });
 }
 
