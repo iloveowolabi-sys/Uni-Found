@@ -776,7 +776,7 @@ async function startServer() {
   }
 
   // To support Azure App Services which assign a port via process.env.PORT
-  const serverPort = process.env.PORT || PORT;
+  const serverPort = process.env.PORT || 8080;
   app.listen(serverPort, '0.0.0.0', () => {
     console.log(`[SERVER] Server running on port ${serverPort} - server.ts:781`);
     console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'} - server.ts:782`);
