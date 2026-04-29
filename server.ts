@@ -22,7 +22,7 @@ if (!process.env.DATABASE_URL) {
 
 const poolConfig: any = {
   connectionString: process.env.DATABASE_URL,
-  connectionTimeoutMillis: 10000,
+  connectionTimeoutMillis: 5000, // Fast fail for Azure
 };
 if (process.env.NODE_ENV === 'production' && process.env.DATABASE_URL) {
     if(!process.env.DATABASE_URL.includes('localhost')){
@@ -226,7 +226,7 @@ async function initDb() {
 
     for (const m of migrations) {
       try {
-        await client.query(`ALTER TABLE ${m.table} ADD COLUMN ${m.column} ${m.type}`);
+        await client.query(`ALTER TABLE ${m.table} ADD COLUMN IF NOT EXISTS ${m.column} ${m.type}`);
       } catch (e: any) {
         // PG error 42701 is duplicate_column
         if (e.code !== '42701') {
@@ -239,21 +239,29 @@ async function initDb() {
   }
 }
 
-async function startServer() {
-  console.log('[SERVER] Starting server initialization... - server.ts:243');
-  const app = express();
-  const PORT = process.env.PORT || 3000;
+// ✅ FIX #2: Non-blocking DB init wrapper (called AFTER listen)
+async function initDbAsync() {
+  try {
+    await initDb();
+    console.log('[SERVER] Postgres Database initialized successfully - server.ts:246');
+  } catch (e) {
+    console.error('[SERVER] Failed to initialize database (nonfatal): - server.ts:248', e);
+  }
+}
 
-  initDb()
-    .then(() => console.log('[SERVER] Postgres Database initialized successfully - server.ts:248'))
-    .catch((e) => console.error('[SERVER] Failed to initialize database: - server.ts:249', e));
+async function startServer() {
+  console.log('[SERVER] Starting server initialization... - server.ts:253');
+  const app = express();
+  
+  // ✅ FIX #3: Single, clean PORT definition
+  const PORT = process.env.PORT || 8080;
 
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
 
   // Request logging middleware
   app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - server.ts:256`);
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - server.ts:264`);
     next();
   });
 
@@ -276,7 +284,7 @@ async function startServer() {
   });
 
   // --- AUTH ROUTES ---
-  console.log('[SERVER] Setting up auth routes... - server.ts:279');
+  console.log('[SERVER] Setting up auth routes... - server.ts:287');
 
   app.post('/api/auth/signup', async (req, res) => {
     const { name, email, password, username } = req.body;
@@ -293,13 +301,13 @@ async function startServer() {
       
       // Send email in background
       sendVerificationEmail(email, verificationToken, name, req).catch(err => {
-        console.error('Background email error: - server.ts:296', err);
+        console.error('Background email error: - server.ts:304', err);
       });
       
       const token = jwt.sign({ id, email, name, role }, JWT_SECRET);
       res.json({ token, user: { id, name, email, role, isVerified: false } });
     } catch (error: any) {
-      console.error('Signup error: - server.ts:302', error);
+      console.error('Signup error: - server.ts:310', error);
       // PG unique violation code is 23505
       if (error.code === '23505') {
         res.status(400).json({ error: 'Email already exists' });
@@ -311,22 +319,22 @@ async function startServer() {
 
   app.post('/api/auth/verify', async (req, res) => {
     const { token } = req.body;
-    console.log(`[AUTH] Verification attempt with token: ${token?.substring(0, 8)}... - server.ts:314`);
+    console.log(`[AUTH] Verification attempt with token: ${token?.substring(0, 8)}... - server.ts:322`);
     try {
       const { rows } = await pool.query('SELECT id, email FROM users WHERE verification_token = $1', [token]);
       const user = rows[0];
       
       if (!user) {
-        console.log('[AUTH] Verification failed: Invalid token - server.ts:320');
+        console.log('[AUTH] Verification failed: Invalid token - server.ts:328');
         return res.status(400).json({ error: 'Invalid or expired verification token' });
       }
 
-      console.log(`[AUTH] Verifying user: ${user.email} - server.ts:324`);
+      console.log(`[AUTH] Verifying user: ${user.email} - server.ts:332`);
       await pool.query('UPDATE users SET is_verified = true, verification_token = NULL WHERE id = $1', [user.id]);
-      console.log(`[AUTH] User ${user.email} verified successfully - server.ts:326`);
+      console.log(`[AUTH] User ${user.email} verified successfully - server.ts:334`);
       res.json({ success: true });
     } catch (error) {
-      console.error('[AUTH ERROR] Verification error: - server.ts:329', error);
+      console.error('[AUTH ERROR] Verification error: - server.ts:337', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -344,12 +352,12 @@ async function startServer() {
       
       // We don't await this to prevent SMTP auth errors from blocking the response
       sendVerificationEmail(user.email, verificationToken, user.name, req).catch(err => {
-        console.error('Resend email background error: - server.ts:347', err);
+        console.error('Resend email background error: - server.ts:355', err);
       });
       
       res.json({ success: true });
     } catch (error) {
-      console.error('Resend verification error: - server.ts:352', error);
+      console.error('Resend verification error: - server.ts:360', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -378,7 +386,7 @@ async function startServer() {
       
       res.json({ success: true, message: 'Password reset email sent.' });
     } catch (error) {
-      console.error('Forgot password error: - server.ts:381', error);
+      console.error('Forgot password error: - server.ts:389', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -407,36 +415,36 @@ async function startServer() {
       
       res.json({ success: true, message: 'Password has been reset successfully' });
     } catch (error) {
-      console.error('Reset password error: - server.ts:410', error);
+      console.error('Reset password error: - server.ts:418', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
 
   app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
-    console.log(`[AUTH] Login attempt for: ${email} - server.ts:417`);
+    console.log(`[AUTH] Login attempt for: ${email} - server.ts:425`);
     try {
-      console.log(`[AUTH] Querying database for user: ${email} - server.ts:419`);
+      console.log(`[AUTH] Querying database for user: ${email} - server.ts:427`);
       const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
       const user = rows[0];
       
       if (!user) {
-        console.log(`[AUTH] Login failed: User not found (${email}) - server.ts:424`);
+        console.log(`[AUTH] Login failed: User not found (${email}) - server.ts:432`);
         return res.status(400).json({ error: 'User not found' });
       }
 
-      console.log(`[AUTH] User found, comparing passwords... - server.ts:428`);
+      console.log(`[AUTH] User found, comparing passwords... - server.ts:436`);
       const validPassword = bcrypt.compareSync(password, user.password);
       
       if (!validPassword) {
-        console.log(`[AUTH] Login failed: Invalid password for ${email} - server.ts:432`);
+        console.log(`[AUTH] Login failed: Invalid password for ${email} - server.ts:440`);
         return res.status(400).json({ error: 'Invalid password' });
       }
 
-      console.log(`[AUTH] Password valid, generating token... - server.ts:436`);
+      console.log(`[AUTH] Password valid, generating token... - server.ts:444`);
       const token = jwt.sign({ id: user.id, email: user.email, name: user.name, role: user.role }, JWT_SECRET);
       
-      console.log(`[AUTH] Login successful for: ${email} - server.ts:439`);
+      console.log(`[AUTH] Login successful for: ${email} - server.ts:447`);
       res.json({ 
         token, 
         user: { 
@@ -450,7 +458,7 @@ async function startServer() {
         } 
       });
     } catch (error) {
-      console.error('[AUTH ERROR] Login error: - server.ts:453', error);
+      console.error('[AUTH ERROR] Login error: - server.ts:461', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -540,7 +548,7 @@ async function startServer() {
 
       res.json({ id });
     } catch (error) {
-      console.error('Create report error: - server.ts:543', error);
+      console.error('Create report error: - server.ts:551', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -666,7 +674,7 @@ async function startServer() {
         categoryDistribution: categoryDistribution.map((c: any) => ({ ...c, value: Number(c.value) }))
       });
     } catch(e) {
-       console.error("Stats Error: - server.ts:669", e);
+       console.error("Stats Error: - server.ts:677", e);
        res.status(500).json({ error: 'Server error' });
     }
   });
@@ -703,7 +711,7 @@ async function startServer() {
       `, [req.user.id]);
       res.json(rows);
     } catch (error) {
-      console.error('Fetch notifications error: - server.ts:706', error);
+      console.error('Fetch notifications error: - server.ts:714', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
@@ -745,15 +753,18 @@ async function startServer() {
 
       res.json({ success: true });
     } catch (error) {
-      console.error('Update status error: - server.ts:748', error);
+      console.error('Update status error: - server.ts:756', error);
       res.status(500).json({ error: 'Server error' });
     }
   });
 
-  // --- VITE MIDDLEWARE ---
+  // --- VITE MIDDLEWARE & SPA FALLBACK ---
   const distPath = path.join(process.cwd(), 'dist');
 
-  if (process.env.NODE_ENV !== 'production') {
+  // ✅ FIX #4: Safe NODE_ENV check
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (!isProd) {
     try {
       const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
@@ -762,25 +773,55 @@ async function startServer() {
       });
       app.use(vite.middlewares);
     } catch (e) {
-      console.warn('[SERVER] Could not load vite, falling back to static production mode. - server.ts:765');
+      console.warn('[SERVER] Could not load vite, falling back to static production mode. - server.ts:776');
       app.use(express.static(distPath));
-      app.use((req, res) => {
+      // ✅ FIX #1: Azure-safe SPA fallback middleware (NO wildcard routes)
+      app.use((req, res, next) => {
+        if (req.method !== 'GET') return next();
+        const acceptsHtml = req.headers.accept?.includes('text/html');
+        const isApi = req.path.startsWith('/api');
+        if (isApi || !acceptsHtml) return next();
         res.sendFile(path.join(distPath, 'index.html'));
       });
     }
   } else {
     app.use(express.static(distPath));
-    app.use((req, res) => {
+    // ✅ FIX #1: Azure-safe SPA fallback middleware (NO wildcard routes)
+    app.use((req, res, next) => {
+      if (req.method !== 'GET') return next();
+      const acceptsHtml = req.headers.accept?.includes('text/html');
+      const isApi = req.path.startsWith('/api');
+      if (isApi || !acceptsHtml) return next();
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  // To support Azure App Services which assign a port via process.env.PORT
-  const serverPort = process.env.PORT || 8080;
-  app.listen(serverPort, '0.0.0.0', () => {
-    console.log(`[SERVER] Server running on port ${serverPort} - server.ts:781`);
-    console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'} - server.ts:782`);
+  // ✅ FIX #3: Clean PORT binding + START SERVER FIRST
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[SERVER] Server running on port ${PORT} - server.ts:801`);
+    console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'} - server.ts:802`);
+    console.log(`[SERVER] Health check: GET /api/health - server.ts:803`);
   });
+
+  // ✅ FIX #2: Initialize DB asynchronously AFTER server is listening (non-blocking)
+  initDbAsync();
+
+  // ✅ BONUS: Graceful shutdown for Azure container lifecycle
+  const gracefulShutdown = async (signal: string) => {
+    console.log(`[SERVER] Received ${signal}. Starting graceful shutdown... - server.ts:811`);
+    server.close(async () => {
+      await pool.end();
+      console.log('[SERVER] Shutdown complete - server.ts:814');
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
-startServer();
+// Start immediately with error handling
+startServer().catch(err => {
+  console.error('[SERVER] Unhandled startup error: - server.ts:825', err);
+  process.exit(1);
+});
