@@ -764,13 +764,13 @@ async function startServer() {
     } catch (e) {
       console.warn('[SERVER] Could not load vite, falling back to static production mode. - server.ts:765');
       app.use(express.static(distPath));
-      app.get('*', (req, res) => {
+      app.get(/.*/, (req, res) => {
         res.sendFile(path.join(distPath, 'index.html'));
       });
     }
   } else {
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get(/.*/, (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
