@@ -242,7 +242,7 @@ async function initDb() {
 async function startServer() {
   console.log('[SERVER] Starting server initialization... - server.ts:243');
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   initDb()
     .then(() => console.log('[SERVER] Postgres Database initialized successfully - server.ts:248'))
@@ -764,7 +764,7 @@ async function startServer() {
     } catch (e) {
       console.warn('[SERVER] Could not load vite, falling back to static production mode. - server.ts:765');
       app.use(express.static(distPath));
-      app.get(/.*/, (req, res) => {
+      app.get('*all', (req, res) => {
         res.sendFile(path.join(distPath, 'index.html'));
       });
     }
